@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Whale Terminal</title>
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    height: 100vh;
+    background: #000;
+    color: #fff;
+    font-family: Consolas, Monaco, "Courier New", monospace;
+    overflow: hidden;
+  }
+
+  .terminal {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .titlebar {
+    height: 38px;
+    background: #000;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 8px;
+    user-select: none;
+  }
+
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+
+  .red { background: #ff5f57; }
+  .yellow { background: #ffbd2e; }
+  .green { background: #28c840; }
+
+  .title {
+    margin-left: 10px;
+    color: #fff;
+    font-size: 13px;
+  }
+
+  #screen {
+    flex: 1;
+    padding: 18px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.55;
+    font-size: 15px;
+    color: #fff;
+  }
+
+  .input-line {
+    display: flex;
+    border-top: 1px solid #222;
+    background: #000;
+    padding: 12px 18px;
+  }
+
+  .prompt {
+    color: #fff;
+    margin-right: 8px;
+    font-weight: bold;
+  }
+
+  #cmd {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #fff;
+    outline: none;
+    font: inherit;
+  }
+
+  .drop {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,.75);
+    z-index: 10;
+    color: #fff;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+  }
+
+  .drop.show { display: flex; }
+
+  .err { color: #ff5555; }
+</style>
+</head>
+<body>
+  <div class="terminal">
+    <div class="titlebar">
+      <span class="dot red"></span>
+      <span class="dot yellow"></span>
+      <span class="dot green"></span>
+      <span class="title">Whale Terminal</span>
+    </div>
+
+    <div id="screen"></div>
+
+    <div class="input-line">
+      <span class="prompt">whale&gt;</span>
+      <input id="cmd" autocomplete="off" autofocus />
+    </div>
+  </div>
+
+  <div id="drop" class="drop">
+    Drop a .whl file here to run it
+  </div>
+
+  <input type="file" id="fileInput" accept=".whl" hidden />
+
+<script>
+const screen = document.getElementById("screen");
+const cmd = document.getElementById("cmd");
+const fileInput = document.getElementById("fileInput");
+const drop = document.getElementById("drop");
+
+const variables = {};
+const functions = {};
+let currentLang = "en";
+
+function print(text = "", cls = "") {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = text;
+  screen.appendChild(line);
+  screen.scrollTop = screen.scrollHeight;
+}
+
+function boot() {
+  print("[ Whale Terminal ]");
+  print("Whale HTML Terminal v0.4");
+  print("Commands: open, editor, help, clear");
+  print("You can also type Whale code directly.");
+  print("");
+}
+
+cmd.addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+
+  const value = cmd.value.trim();
+  print("whale> " + value);
+  cmd.value = "";
+
+  handleInput(value);
+});
+
+function handleInput(value) {
+  if (!value) return;
+
+  if (value === "open") {
+    fileInput.click();
+    return;
+  }
+
+  if (value === "editor") {
+    window.open("https://whale.imtdot.kr/editor", "_blank");
+    print("Opening Whale Editor...");
+    return;
+  }
+
+  if (value === "help") {
+    showHelp();
+    return;
+  }
+
+  if (value === "clear") {
+    screen.innerHTML = "";
+    boot();
+    return;
+  }
+
+  try {
+    runWhaleLine(value);
+  } catch (err) {
+    print("Error: " + err.message, "err");
+  }
+}
+
+function showHelp() {
+  print("Whale Help");
+  print("");
+  print("Terminal commands");
+  print("  open    : Open and run a .whl file");
+  print("  editor  : Open https://whale.imtdot.kr/editor");
+  print("  help    : Show this help");
+  print("  clear   : Clear the terminal");
+  print("");
+  print("Direct execution examples");
+  print("  print['hello whale']");
+  print("  whale lang='kr'");
+  print("  출력['안녕 웨일']");
+  print("  print[1 + 1]");
+  print("");
+}
+
+function runWhaleLine(line) {
+  line = line.trim();
+
+  if (line.startsWith("whale lang=")) {
+    if (line.includes("'kr'") || line.includes('"kr"')) {
+      currentLang = "kr";
+    } else {
+      currentLang = "en";
+    }
+
+    print("Language mode: " + currentLang);
+    return;
+  }
+
+  executeLine(line, currentLang);
+}
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  await runFile(file);
+  fileInput.value = "";
+});
+
+window.addEventListener("dragover", e => {
+  e.preventDefault();
+  drop.classList.add("show");
+});
+
+window.addEventListener("dragleave", e => {
+  if (e.clientX === 0 || e.clientY === 0) {
+    drop.classList.remove("show");
+  }
+});
+
+window.addEventListener("drop", async e => {
+  e.preventDefault();
+  drop.classList.remove("show");
+
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+
+  if (!file.name.endsWith(".whl")) {
+    print("Error: Only .whl files can be executed.", "err");
+    return;
+  }
+
+  await runFile(file);
+});
+
+async function runFile(file) {
+  const text = await file.text();
+  print("");
+  print("Running: " + file.name);
+  print("--------------------------------");
+
+  try {
+    runWhale(text);
+  } catch (err) {
+    print("Error: " + err.message, "err");
+  }
+
+  print("--------------------------------");
+  print("Finished.");
+  print("");
+}
+
+function runWhale(code) {
+  Object.keys(variables).forEach(k => delete variables[k]);
+  Object.keys(functions).forEach(k => delete functions[k]);
+
+  const rawLines = code.replace(/\r/g, "").split("\n");
+  const lines = rawLines.filter(line => line.trim() && !line.trim().startsWith("#"));
+
+  let lang = "en";
+
+  if (lines[0] && lines[0].trim().startsWith("whale lang=")) {
+    const first = lines.shift().trim();
+
+    if (first.includes("'kr'") || first.includes('"kr"')) lang = "kr";
+    if (first.includes("'en'") || first.includes('"en"')) lang = "en";
+  }
+
+  currentLang = lang;
+  executeLines(lines, lang);
+}
+
+function executeLines(lines, lang) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (isBlockStart(trimmed, lang, "repeat")) {
+      const countRaw = getInside(trimmed, "(", ")");
+      const block = collectBlock(lines, i);
+      i = block.end;
+
+      let count = evalValue(countRaw, lang);
+
+      if (countRaw === "r") {
+        print("Infinite repeat is limited to 20 times in the browser.");
+        count = 20;
+      }
+
+      count = Number(count);
+
+      for (let n = 0; n < count; n++) {
+        executeLines(block.lines, lang);
+      }
+
+      continue;
+    }
+
+    if (isBlockStart(trimmed, lang, "func")) {
+      const name = getInside(trimmed, "(", ")");
+      const block = collectBlock(lines, i);
+      i = block.end;
+      functions[name] = block.lines;
+      continue;
+    }
+
+    executeLine(trimmed, lang);
+  }
+}
+
+function executeLine(line, lang) {
+  line = line.trim();
+
+  if (isPrint(line, lang)) {
+    const value = getInside(line, "[", "]");
+    print(String(evalValue(value, lang)));
+    return;
+  }
+
+  if (isAssignment(line)) {
+    const eqIndex = line.indexOf("=");
+    const key = line.slice(0, eqIndex).trim();
+    const value = line.slice(eqIndex + 1).trim();
+    variables[key] = evalValue(value, lang);
+    return;
+  }
+
+  if (functions[line]) {
+    executeLines(functions[line], lang);
+    return;
+  }
+
+  print("Cannot execute code: " + line, "err");
+}
+
+function isAssignment(line) {
+  if (line.startsWith("whale lang=")) return false;
+  return line.includes("=") && !line.startsWith("print[") && !line.startsWith("출력[");
+}
+
+function isPrint(line, lang) {
+  line = line.trim();
+
+  if (line.startsWith("print[") && line.endsWith("]")) return true;
+  if (line.startsWith("출력[") && line.endsWith("]")) return true;
+
+  return false;
+}
+
+function isBlockStart(line, lang, type) {
+  if (type === "repeat") {
+    return (
+      (line.startsWith("repeat(") || line.startsWith("반복(")) &&
+      line.endsWith(":")
+    );
+  }
+
+  if (type === "func") {
+    return (
+      (line.startsWith("func(") || line.startsWith("함수(")) &&
+      line.endsWith(":")
+    );
+  }
+
+  return false;
+}
+
+function collectBlock(lines, startIndex) {
+  const result = [];
+  let end = startIndex;
+  const baseIndent = getIndent(lines[startIndex]);
+
+  for (let i = startIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+
+    const indent = getIndent(line);
+
+    if (indent <= baseIndent) break;
+
+    result.push(line.slice(baseIndent + 4));
+    end = i;
+  }
+
+  return { lines: result, end };
+}
+
+function getIndent(line) {
+  const match = line.match(/^ */);
+  return match ? match[0].length : 0;
+}
+
+function getInside(text, start, end) {
+  const s = text.indexOf(start);
+  const e = text.lastIndexOf(end);
+
+  if (s === -1 || e === -1 || e <= s) return "";
+
+  return text.slice(s + 1, e).trim();
+}
+
+function evalValue(expr, lang) {
+  expr = expr.trim();
+
+  if (
+    (expr.startsWith("'") && expr.endsWith("'")) ||
+    (expr.startsWith('"') && expr.endsWith('"'))
+  ) {
+    return expr.slice(1, -1);
+  }
+
+  if (expr.startsWith("int(") && expr.endsWith(")")) {
+    return parseInt(evalValue(getInside(expr, "(", ")"), lang), 10);
+  }
+
+  if (expr.startsWith("정수(") && expr.endsWith(")")) {
+    return parseInt(evalValue(getInside(expr, "(", ")"), lang), 10);
+  }
+
+  if (expr.startsWith("input(") && expr.endsWith(")")) {
+    const msg = evalValue(getInside(expr, "(", ")"), lang);
+    return prompt(msg) ?? "";
+  }
+
+  if (expr.startsWith("입력(") && expr.endsWith(")")) {
+    const msg = evalValue(getInside(expr, "(", ")"), lang);
+    return prompt(msg) ?? "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(variables, expr)) {
+    return variables[expr];
+  }
+
+  if (/^-?\d+(\.\d+)?$/.test(expr)) {
+    return Number(expr);
+  }
+
+  return evalExpression(expr, lang);
+}
+
+function evalExpression(expr, lang) {
+  expr = expr.trim();
+
+  const stringParts = splitStringConcat(expr);
+
+  if (stringParts.length > 1) {
+    return stringParts.map(p => evalValue(p, lang)).join("");
+  }
+
+  const mathOps = ["///", "//", "**", "*", "/", "-", "+"];
+
+  for (const op of mathOps) {
+    const idx = findOperator(expr, op);
+
+    if (idx > -1) {
+      const left = evalValue(expr.slice(0, idx), lang);
+      const right = evalValue(expr.slice(idx + op.length), lang);
+
+      if (op === "+") return Number(left) + Number(right);
+      if (op === "-") return Number(left) - Number(right);
+      if (op === "*") return Number(left) * Number(right);
+      if (op === "/") return Number(left) / Number(right);
+      if (op === "//") return Math.floor(Number(left) / Number(right));
+      if (op === "///") return Number(left) % Number(right);
+      if (op === "**") return Math.pow(Number(left), Number(right));
+    }
+  }
+
+  return expr;
+}
+
+function splitStringConcat(expr) {
+  const result = [];
+  let current = "";
+  let quote = null;
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+
+    if ((ch === "'" || ch === '"') && expr[i - 1] !== "\\") {
+      quote = quote === ch ? null : ch;
+    }
+
+    if (ch === "+" && !quote) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  if (current.trim()) result.push(current.trim());
+
+  const hasString = result.some(p => {
+    if ((p.startsWith("'") && p.endsWith("'")) || (p.startsWith('"') && p.endsWith('"'))) {
+      return true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(variables, p) && typeof variables[p] === "string") {
+      return true;
+    }
+
+    return false;
+  });
+
+  return hasString ? result : [expr];
+}
+
+function findOperator(expr, op) {
+  let quote = null;
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+
+    if ((ch === "'" || ch === '"') && expr[i - 1] !== "\\") {
+      quote = quote === ch ? null : ch;
+    }
+
+    if (!quote && expr.slice(i, i + op.length) === op) {
+      if (op === "-" && i === 0) continue;
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+boot();
+</script>
+</body>
+</html>
