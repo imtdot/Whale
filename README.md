@@ -1,5 +1,7 @@
 # 🐋 Whale Programming Language
 
+[![Download](https://img.shields.io/badge/Download-Whale-blue?style=for-the-badge&logo=github)](https://github.com/imtdot/Whale/releases)
+
 **Whale** is a beginner-friendly programming language designed to be **easy to read, easy to write, and easy to learn**.
 
 It supports both **English and Korean syntax**, making coding more accessible to everyone.
