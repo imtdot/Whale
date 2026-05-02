@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whale Terminal 0.2</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  height: 100vh;
+  background: #000;
+  color: #fff;
+  font-family: Consolas, Monaco, "Courier New", monospace;
+  overflow: hidden;
+}
+.terminal {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+.titlebar {
+  height: 36px;
+  border-bottom: 1px solid #222;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #fff;
+}
+#screen {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 15px;
+}
+.input-line {
+  display: flex;
+  border-top: 1px solid #222;
+  padding: 10px 12px;
+}
+.prompt { margin-right: 8px; color: #fff; }
+#cmd {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  outline: none;
+  font: inherit;
+}
+.err { color: #ff5555; }
+.drop {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.85);
+  color: #fff;
+  font-size: 22px;
+  z-index: 10;
+}
+.drop.show { display: flex; }
+</style>
+</head>
+<body>
+
+<div class="terminal">
+  <div class="titlebar">Whale Terminal 0.2</div>
+  <div id="screen"></div>
+  <div class="input-line">
+    <span class="prompt">whale&gt;</span>
+    <input id="cmd" autofocus autocomplete="off">
+  </div>
+</div>
+
+<div id="drop" class="drop">Drop .whl file to run</div>
+<input type="file" id="fileInput" accept=".whl" hidden>
+
+<script>
+const screen = document.getElementById("screen");
+const cmd = document.getElementById("cmd");
+const fileInput = document.getElementById("fileInput");
+const drop = document.getElementById("drop");
+
+let variables = {};
+let functions = {};
+let currentLang = "en";
+let waitingInputResolve = null;
+
+function print(text = "", cls = "") {
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = text;
+  screen.appendChild(div);
+  screen.scrollTop = screen.scrollHeight;
+}
+
+function boot() {
+  print("[ Whale Terminal ]");
+  print("Whale HTML Terminal v0.2");
+  print("Commands: open, editor, help, clear");
+  print("New in 0.2: if/else, 만약/아니면, comparison operators");
+  print("");
+}
+
+cmd.addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+
+  const value = cmd.value;
+  print("whale> " + value);
+  cmd.value = "";
+
+  if (waitingInputResolve) {
+    const resolve = waitingInputResolve;
+    waitingInputResolve = null;
+    resolve(value);
+    return;
+  }
+
+  await handle(value.trim());
+});
+
+async function handle(value) {
+  if (!value) return;
+
+  if (value === "open") {
+    fileInput.click();
+    return;
+  }
+
+  if (value === "editor") {
+    location.href = "/editor";
+    return;
+  }
+
+  if (value === "help") {
+    showHelp();
+    return;
+  }
+
+  if (value === "clear") {
+    screen.innerHTML = "";
+    boot();
+    return;
+  }
+
+  try {
+    await runLine(value);
+  } catch (err) {
+    print("Error: " + err.message, "err");
+  }
+}
+
+function showHelp() {
+  print("Whale Help");
+  print("");
+  print("Terminal commands");
+  print("  open    : Open and run a .whl file");
+  print("  editor  : Open Whale Editor");
+  print("  help    : Show this help");
+  print("  clear   : Clear terminal");
+  print("");
+  print("Examples");
+  print("  print['hello whale']");
+  print("  name = input('Name >>> ')");
+  print("  print['Hello ' + name]");
+  print("  age = int(input('Age >>> '))");
+  print("  if(age >= 14):");
+  print("      print['OK']");
+  print("  else:");
+  print("      print['NO']");
+  print("");
+  print("Korean");
+  print("  whale lang='kr'");
+  print("  나이 = 정수(입력('나이 >>> '))");
+  print("  만약(나이 >= 14):");
+  print("      출력['가능']");
+  print("  아니면:");
+  print("      출력['불가능']");
+}
+
+async function runLine(line) {
+  line = line.trim();
+
+  if (line.startsWith("whale lang=")) {
+    currentLang = line.includes("kr") ? "kr" : "en";
+    print("Language: " + currentLang);
+    return;
+  }
+
+  await execLine(line);
+}
+
+async function execLine(line) {
+  line = line.trim();
+
+  if (!line || line.startsWith("#")) return;
+
+  if (line.startsWith("print[") || line.startsWith("출력[")) {
+    const value = inside(line, "[", "]");
+    print(String(await evalVal(value)));
+    return;
+  }
+
+  if (isAssignment(line)) {
+    const eq = line.indexOf("=");
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    variables[key] = await evalVal(value);
+    return;
+  }
+
+  if (functions[line]) {
+    await runBlock(functions[line]);
+    return;
+  }
+
+  print("Cannot execute code: " + line, "err");
+}
+
+function isAssignment(line) {
+  if (line.startsWith("whale lang=")) return false;
+  if (line.startsWith("print[") || line.startsWith("출력[")) return false;
+  if (line.includes("==") || line.includes("!=") || line.includes(">=") || line.includes("<=")) return false;
+  return line.includes("=");
+}
+
+async function evalVal(expr) {
+  expr = expr.trim();
+
+  if (
+    (expr.startsWith("'") && expr.endsWith("'")) ||
+    (expr.startsWith('"') && expr.endsWith('"'))
+  ) return expr.slice(1, -1);
+
+  if (expr.startsWith("int(") && expr.endsWith(")")) {
+    return parseInt(await evalVal(inside(expr, "(", ")")), 10);
+  }
+
+  if (expr.startsWith("정수(") && expr.endsWith(")")) {
+    return parseInt(await evalVal(inside(expr, "(", ")")), 10);
+  }
+
+  if (expr.startsWith("input(") && expr.endsWith(")")) {
+    const message = await evalVal(inside(expr, "(", ")"));
+    return await requestTerminalInput(String(message));
+  }
+
+  if (expr.startsWith("입력(") && expr.endsWith(")")) {
+    const message = await evalVal(inside(expr, "(", ")"));
+    return await requestTerminalInput(String(message));
+  }
+
+  if (expr in variables) return variables[expr];
+
+  if (/^-?\d+(\.\d+)?$/.test(expr)) return Number(expr);
+
+  return await evalExpression(expr);
+}
+
+function requestTerminalInput(message) {
+  return new Promise(resolve => {
+    print(message);
+    waitingInputResolve = resolve;
+  });
+}
+
+async function evalExpression(expr) {
+  expr = expr.trim();
+
+  const stringParts = splitStringConcat(expr);
+  if (stringParts.length > 1) {
+    const values = [];
+    for (const part of stringParts) values.push(await evalVal(part));
+    return values.join("");
+  }
+
+  const mathOps = ["///", "//", "**", "*", "/", "-", "+"];
+
+  for (const op of mathOps) {
+    const idx = findOperator(expr, op);
+    if (idx > -1) {
+      const left = Number(await evalVal(expr.slice(0, idx)));
+      const right = Number(await evalVal(expr.slice(idx + op.length)));
+
+      if (op === "+") return left + right;
+      if (op === "-") return left - right;
+      if (op === "*") return left * right;
+      if (op === "/") return left / right;
+      if (op === "//") return Math.floor(left / right);
+      if (op === "///") return left % right;
+      if (op === "**") return Math.pow(left, right);
+    }
+  }
+
+  return expr;
+}
+
+async function evalCondition(expr) {
+  expr = expr.trim();
+  const ops = ["==", "!=", ">=", "<=", ">", "<"];
+
+  for (const op of ops) {
+    const idx = findComparisonOperator(expr, op);
+    if (idx > -1) {
+      const left = await evalVal(expr.slice(0, idx));
+      const right = await evalVal(expr.slice(idx + op.length));
+
+      if (op === "==") return left == right;
+      if (op === "!=") return left != right;
+      if (op === ">=") return Number(left) >= Number(right);
+      if (op === "<=") return Number(left) <= Number(right);
+      if (op === ">") return Number(left) > Number(right);
+      if (op === "<") return Number(left) < Number(right);
+    }
+  }
+
+  return Boolean(await evalVal(expr));
+}
+
+function splitStringConcat(expr) {
+  const result = [];
+  let current = "";
+  let quote = null;
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+
+    if ((ch === "'" || ch === '"') && expr[i - 1] !== "\\") {
+      quote = quote === ch ? null : ch;
+    }
+
+    if (ch === "+" && !quote) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  if (current.trim()) result.push(current.trim());
+
+  const hasString = result.some(part => {
+    if ((part.startsWith("'") && part.endsWith("'")) || (part.startsWith('"') && part.endsWith('"'))) return true;
+    if (part in variables && typeof variables[part] === "string") return true;
+    return false;
+  });
+
+  return hasString ? result : [expr];
+}
+
+function findOperator(expr, op) {
+  let quote = null;
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+
+    if ((ch === "'" || ch === '"') && expr[i - 1] !== "\\") {
+      quote = quote === ch ? null : ch;
+    }
+
+    if (!quote && expr.slice(i, i + op.length) === op) {
+      if (op === "-" && i === 0) continue;
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function findComparisonOperator(expr, op) {
+  let quote = null;
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+
+    if ((ch === "'" || ch === '"') && expr[i - 1] !== "\\") {
+      quote = quote === ch ? null : ch;
+    }
+
+    if (!quote && expr.slice(i, i + op.length) === op) return i;
+  }
+
+  return -1;
+}
+
+function inside(text, start, end) {
+  const s = text.indexOf(start);
+  const e = text.lastIndexOf(end);
+  if (s === -1 || e === -1 || e <= s) return "";
+  return text.slice(s + 1, e).trim();
+}
+
+async function runWhale(code) {
+  variables = {};
+  functions = {};
+
+  let lines = code
+    .replace(/\r/g, "")
+    .split("\n")
+    .filter(line => line.trim() && !line.trim().startsWith("#"));
+
+  if (lines[0] && lines[0].trim().startsWith("whale lang=")) {
+    currentLang = lines.shift().includes("kr") ? "kr" : "en";
+  } else {
+    currentLang = "en";
+  }
+
+  await runBlock(lines);
+}
+
+async function runBlock(lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (isRepeat(trimmed)) {
+      const countRaw = inside(trimmed, "(", ")");
+      const block = collectBlock(lines, i);
+      i = block.end;
+
+      let count = countRaw === "r" ? 20 : Number(await evalVal(countRaw));
+      if (countRaw === "r") print("Infinite repeat is limited to 20 times.");
+
+      for (let n = 0; n < count; n++) await runBlock(block.lines);
+      continue;
+    }
+
+    if (isFunc(trimmed)) {
+      const name = inside(trimmed, "(", ")");
+      const block = collectBlock(lines, i);
+      i = block.end;
+      functions[name] = block.lines;
+      continue;
+    }
+
+    if (isIf(trimmed)) {
+      const condition = inside(trimmed, "(", ")");
+      const ifBlock = collectBlock(lines, i);
+      let nextIndex = ifBlock.end + 1;
+      let elseBlock = null;
+
+      if (nextIndex < lines.length && isElse(lines[nextIndex].trim())) {
+        elseBlock = collectBlock(lines, nextIndex);
+        i = elseBlock.end;
+      } else {
+        i = ifBlock.end;
+      }
+
+      if (await evalCondition(condition)) {
+        await runBlock(ifBlock.lines);
+      } else if (elseBlock) {
+        await runBlock(elseBlock.lines);
+      }
+
+      continue;
+    }
+
+    await execLine(trimmed);
+  }
+}
+
+function isRepeat(line) {
+  return (line.startsWith("repeat(") || line.startsWith("반복(")) && line.endsWith(":");
+}
+
+function isFunc(line) {
+  return (line.startsWith("func(") || line.startsWith("함수(")) && line.endsWith(":");
+}
+
+function isIf(line) {
+  return (line.startsWith("if(") || line.startsWith("만약(")) && line.endsWith(":");
+}
+
+function isElse(line) {
+  return line === "else:" || line === "아니면:";
+}
+
+function collectBlock(lines, startIndex) {
+  const result = [];
+  let end = startIndex;
+  const baseIndent = getIndent(lines[startIndex]);
+
+  for (let i = startIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+
+    const indent = getIndent(line);
+    if (indent <= baseIndent) break;
+
+    result.push(line.slice(baseIndent + 4));
+    end = i;
+  }
+
+  return { lines: result, end };
+}
+
+function getIndent(line) {
+  const match = line.match(/^ */);
+  return match ? match[0].length : 0;
+}
+
+async function runFile(file) {
+  if (!file.name.endsWith(".whl")) {
+    print("Error: Only .whl files can be executed.", "err");
+    return;
+  }
+
+  const text = await file.text();
+
+  print("");
+  print("Running: " + file.name);
+  print("--------------------------------");
+
+  try {
+    await runWhale(text);
+  } catch (err) {
+    print("Error: " + err.message, "err");
+  }
+
+  print("--------------------------------");
+  print("Finished.");
+  print("");
+}
+
+fileInput.addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (file) await runFile(file);
+  fileInput.value = "";
+});
+
+window.addEventListener("dragover", e => {
+  e.preventDefault();
+  drop.classList.add("show");
+});
+
+window.addEventListener("dragleave", e => {
+  if (e.clientX === 0 || e.clientY === 0) drop.classList.remove("show");
+});
+
+window.addEventListener("drop", async e => {
+  e.preventDefault();
+  drop.classList.remove("show");
+
+  const file = e.dataTransfer.files[0];
+  if (file) await runFile(file);
+});
+
+async function runAutorunFromEditor() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("autorun") !== "1") return;
+
+  const code = localStorage.getItem("whale_autorun_code");
+  const filename = localStorage.getItem("whale_autorun_filename") || "editor.whl";
+  if (!code) return;
+
+  print("");
+  print("Running from Whale Editor: " + filename);
+  print("--------------------------------");
+
+  try {
+    await runWhale(code);
+  } catch (err) {
+    print("Error: " + err.message, "err");
+  }
+
+  print("--------------------------------");
+  print("Finished.");
+  print("");
+
+  localStorage.removeItem("whale_autorun_code");
+  localStorage.removeItem("whale_autorun_filename");
+}
+
+boot();
+runAutorunFromEditor();
+</script>
+</body>
+</html>
